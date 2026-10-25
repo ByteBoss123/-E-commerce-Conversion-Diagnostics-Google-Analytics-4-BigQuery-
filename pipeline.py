@@ -2,6 +2,7 @@
 import argparse, datetime as dt, hashlib, html, json, math, os, pathlib, tempfile
 ROOT=pathlib.Path(__file__).parent
 FIELDS=('sessions','views','carts','checkouts','purchases','purchasing_sessions')
+EVENTS={'carts':'add_to_cart','checkouts':'begin_checkout','purchases':'purchase'}
 QUALITY=('raw_events','observed_days','excluded_identity_events','purchase_events','missing_transaction_events','missing_revenue_events','negative_revenue_events','duplicate_transaction_events')
 def wilson(k,n):
     if not n: return None
@@ -42,6 +43,7 @@ def warnings(s):
         if f!='purchase_events' and q[f]: out.append(f.replace('_',' ')+': '+str(q[f]))
     expected=(dt.date.fromisoformat(s['end_date'])-dt.date.fromisoformat(s['start_date'])).days+1
     if q['observed_days']!=expected: out.append(f"Observed {q['observed_days']} of {expected} requested days; investigate missing partitions or event coverage")
+    if q['purchase_events'] and q['missing_transaction_events']==q['purchase_events']: out.append('Duplicate-transaction check not evaluable: no purchase event carries a usable transaction ID, so a zero duplicate count is not evidence of no duplicates')
     return out
 
 def atomic_write(path,text):
@@ -59,7 +61,12 @@ def report(s):
     rate=f'{100*k/n:.2f}%' if n else 'Unavailable'
     interval=f'{ci[0]*100:.2f}%–{ci[1]*100:.2f}%' if ci else 'Unavailable'
     issues=warnings(s)
-    return '<!doctype html><meta charset="utf-8"><title>Conversion diagnostic brief</title><style>body{max-width:850px;margin:48px auto;font:17px/1.6 system-ui;padding:20px}td,th{text-align:left;padding:8px 24px 8px 0}</style><h1>Conversion diagnostic brief</h1>'+f'<p>{s["start_date"]} to {s["end_date"]} · Historical, obfuscated GA4 sample</p><p>Generated {html.escape(s["generated_at"])}</p><h2>Ordered funnel</h2><table>'+''.join(f'<tr><th>{f}</th><td>{totals[f]:,}</td></tr>' for f in FIELDS)+f'</table><p>View-to-purchase completion: {rate}. Descriptive 95% Wilson interval: {interval}.</p><h2>Data quality</h2><ul>'+''.join('<li>'+html.escape(x)+'</li>' for x in issues or ['No flagged checks in this extraction; this does not certify tracking completeness.'])+'</ul><h2>Next action</h2><p>Review quality exceptions first. Compare device and acquisition-source segments, inspect checkout instrumentation, and design a randomized test before claiming an improvement.</p><p>Ordered stages must occur within the same session at strictly increasing timestamps. Acquisition source is first-user source, not session campaign attribution. Wilson intervals assume independent sessions; repeated users may invalidate that assumption. Differences are descriptive, not causal. Revenue and ROAS are deliberately excluded.</p>'
+    stages=[('views','Product view'),('carts','Add to cart'),('checkouts','Begin checkout'),('purchases','Purchase')]
+    loss=max(range(3),key=lambda i:totals[stages[i][0]]-totals[stages[i+1][0]])
+    lost=totals[stages[loss][0]]-totals[stages[loss+1][0]]
+    labels={'sessions':'Sessions','views':'Product-view sessions','carts':'Ordered add-to-cart sessions','checkouts':'Ordered checkout sessions','purchases':'Ordered purchasing sessions','purchasing_sessions':'Sessions with any purchase event (order not required)'}
+    focus=(f'The largest ordered-stage loss is {stages[loss][1].lower()} → {stages[loss+1][1].lower()} ({lost:,} sessions). Confirm that {EVENTS[stages[loss+1][0]]} events are actually being recorded before reading this as abandonment.' if n else 'No product-view sessions; completion cannot be estimated.')
+    return '<!doctype html><meta charset="utf-8"><title>Conversion diagnostic brief</title><style>body{max-width:850px;margin:48px auto;font:17px/1.6 system-ui;padding:20px}td,th{text-align:left;padding:8px 24px 8px 0}</style><h1>Conversion diagnostic brief</h1>'+f'<p>{s["start_date"]} to {s["end_date"]} · Historical, obfuscated GA4 sample</p><p>Generated {html.escape(s["generated_at"])}</p><h2>Ordered funnel</h2><table>'+''.join(f'<tr><th>{labels[f]}</th><td>{totals[f]:,}</td></tr>' for f in FIELDS)+f'</table><p>View-to-purchase completion (ordered purchasing sessions ÷ product-view sessions): {rate}. Descriptive 95% Wilson interval: {interval}.</p><h2>Data quality (source-wide)</h2><table>'+''.join(f'<tr><th>{f.replace("_"," ")}</th><td>{s["quality"][f]:,}</td></tr>' for f in QUALITY)+'</table><p>Counts can overlap; do not add them together.</p><ul>'+''.join('<li>'+html.escape(x)+'</li>' for x in issues or ['No flagged checks in this extraction; this does not certify tracking completeness.'])+f'</ul><h2>Next action</h2><p>{html.escape(focus)}</p><p>Review quality exceptions first. Compare device and acquisition-source segments and design a randomized test before claiming an improvement.</p><p>Ordered stages must occur within the same session at strictly increasing timestamps. Acquisition source is first-user source, not session campaign attribution. Wilson intervals assume independent sessions; repeated users may invalidate that assumption. Differences are descriptive, not causal. Revenue and ROAS are deliberately excluded.</p>'
 
 def main():
     p=argparse.ArgumentParser(); p.add_argument('--project'); p.add_argument('--start',default='2020-11-01'); p.add_argument('--end',default='2020-11-07'); p.add_argument('--input'); p.add_argument('--output',default='output'); p.add_argument('--dry-run',action='store_true'); p.add_argument('--max-bytes',type=int,default=2_000_000_000); a=p.parse_args()

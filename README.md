@@ -2,15 +2,12 @@
 
 An import-ready ecommerce analysis tool for marketing and product teams. It identifies where an ordered session funnel loses participants, compares device and first-user acquisition segments, and produces a diagnostic report. It does not claim causal lift, optimal budgets, recovered revenue, or current Google Merchandise Store performance.
 
-## Included version
-
-This repository contains the original source archive supplied for upload. The subsequently reported BigQuery results, snapshot, report, and code fixes were not present in that archive and are not included here. The included suite passes 10 Python tests and 11 frontend assertions.
-
 ## Implementation status
 
 - Implemented: parameterized extraction SQL, Python BigQuery runner with dry-run and billing caps, aggregate validation, descriptive Wilson intervals, atomic per-file outputs, HTML reporting, local Streamlit app, browser-local import/filter/report tool, regression tests.
-- Not executed here: BigQuery queries, real-data analysis, Streamlit runtime with dependencies, sustained cloud execution, scheduled refresh, alert delivery.
-- Reason: BigQuery connector disabled by workspace administrator; no configured local Google Cloud credentials.
+- Executed once (2026-10-25): `funnel.sql` and `quality.sql` for 2020-11-01 through 2020-11-07, through the BigQuery console (US, 2,000,000,000-byte limit; date parameters inlined as literals). Both validated without SQL errors. Job IDs and exact processed/billed bytes (from `INFORMATION_SCHEMA.JOBS_BY_USER`) are recorded in the snapshot. The resulting snapshot passed `pipeline.py --input` and the browser app's import validation.
+- Not executed: `pipeline.py --project` end to end with the Python BigQuery client, other date windows, Streamlit runtime with dependencies, sustained cloud execution, scheduled refresh, alert delivery.
+- Known data limitation for 2020-11-01 to 2020-11-07: the source contains only 4 `add_to_cart` events, so the ordered funnel stalls at the cart stage. Every purchase event in that window has a placeholder transaction ID, so the duplicate-transaction check cannot be evaluated.
 - The hosted site starts empty. Test fixtures are confined to tests and are never presented as business observations.
 
 ## Source
@@ -19,7 +16,7 @@ This repository contains the original source archive supplied for upload. The su
 
 Google documentation: https://developers.google.com/analytics/bigquery/web-ecommerce-demo-dataset
 Schema: https://support.google.com/analytics/answer/7029846
-Coverage: November 1, 2020–January 31, 2021. This is an obfuscated historical sample with limited internal consistency and placeholder values; it differs from the GA demo account. Source SQL uses fields documented for this historical export, avoiding newer session-attribution fields. SQL is authored, not warehouse-validated yet.
+Coverage: November 1, 2020–January 31, 2021. This is an obfuscated historical sample with limited internal consistency and placeholder values; it differs from the GA demo account. Source SQL uses fields documented for this historical export, avoiding newer session-attribution fields. SQL has been warehouse-validated for the default November 1–7, 2020 window only.
 
 ## Run
 

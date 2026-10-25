@@ -1,5 +1,7 @@
 __pycache__/
 .venv/
-output/
+output/*
+!output/snapshot.json
+!output/report.html
 .env
 *.log
